@@ -1,0 +1,86 @@
+var closeAFD_PageName = wgPageName.replace(/_/g, ' ');
+var closeAFD_isAdmin = (wgUserGroups.toString().indexOf('sysop') != -1);
+var closeAFD_AJAXnumber = 0;
+var closeAFD_deletenredirect = false;
+var closeAFD_nomdate = null;
+var closeAFD_deletecount = 0;
+var closeAFD_redirectlimit;
+var closeAFD_redirtotal;
+var closeAFD_redircount = 0;
+function closeAFD_relist() {
+  if (!wfSupportsAjax()) {
+    jsMsg('<div style="color:red; font-size:120%">Your browser does not seem to support AJAX, which is required for the closeAFD script.</div>');
+    return;
+  }
+  var today = new Date();
+  var monthnames = new Array("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December");
+  month = monthnames[today.getUTCMonth()];
+  day = today.getUTCDate();
+  year = today.getUTCFullYear();
+  datestring = year + " " + month + " " + day;
+  var newlog = "Wikipedia:Articles for deletion/Log/"+datestring;
+  oldlog = closeAFD_getOldLog();
+  jsMsg('<h3>Relisting '+closeAFD_PageName+'</h3><ul><li><b>Old log:</b> <a href="/wiki/'+encodeURI(oldlog)+'" title="'+oldlog+'">'+oldlog+'</a></li><li><b>New log:</b> <a href="/wiki/'+encodeURI(newlog)+'" title="'+newlog+'">'+newlog+'</a></li></ul><br /><input type="button" id="closeAFD_relist_button" name="closeAFD_relist_button" value="Submit" onclick="closeAFD_continue_relist(\''+newlog+'\', \''+oldlog+'\')" /><input type="button" id="closeAFD_cancel_relist_button" name="closeAFD_cancel_relist_button" value="Cancel" onclick="jsMsg(\'\')" />');
+}
+function closeAFD_continue_relist(newlog, oldlog) {
+  jsMsg('<ul id="closeAFD_status"></ul><ul id="closeAFD_finish"></ul>');
+  document.getElementById('closeAFD_finish').innerHTML += '<span id="closeAFD_finished_wrapper"><span id="closeAFD_finished_main" style="display:none"><li id="closeAFD_done"><b>Done (<a href="/wiki/'+encodeURI(closeAFD_PageName)+'?action=purge" title="'+closeAFD_PageName+'">Reload page</a>)</b></li></span></span>';
+  AFDpage = closeAFD_getPageText(closeAFD_PageName);
+  oldlogpage = closeAFD_getPageText(oldlog);
+  newlogpage = closeAFD_getPageText(newlog);
+  if (newlogpage == '' || oldlogpage == '') {
+    jsMsg('<span style="color:red; font-size:120%">Log page doesn\'t seem to exist!</span>');
+    return;
+  }
+  var regexpagename = closeAFD_PageName.replace(/([\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E])/g, "\\$1");
+  regexpagename = regexpagename.replace(/ /g, "[\\s_]");
+  var rplstr = new RegExp("(\\{\\{" + regexpagename + "\\}\\})", "gi");
+  oldlogpage = oldlogpage.replace(rplstr, "<!-- $1 -->");
+  newlogreg = new RegExp("<!-- Add new entries to the TOP of the following list -->", "i");
+  if (!newlogreg.test(newlogpage)) {
+    jsMsg('<div style="color:red"><b><a href="/wiki/'+encodeURI(newlog)+'" title="'+newlog+'">'+newlog+'</a> is missing the <tt>&lt;!-- Add new entries to the TOP of the following list --&gt;</tt> above the AFD tranclusions! Please add it.<br/>Unable to relist. Aborting.</b></div>');
+    return;
+  }
+  newlogpage = newlogpage.replace(newlogreg, "<!-- Add new entries to the TOP of the following list -->\n{"+"{"+closeAFD_PageName+"}}<!--Relisted-->");
+  AFDpage += '\n{'+'{subst:relist}}';
+  AFDpage = AFDpage.replace(/Wikipedia:Articles for deletion\/Log\/\d{4} \D{4,9} \d{1,2}#/i, newlog+"#");
+  token = closeAFD_getToken(true);
+  closeAFD_editPage(newlog, newlogpage, token, "Relisting [[" + closeAFD_PageName + "]]");
+  closeAFD_editPage(oldlog, oldlogpage, token, "Relisting [[" + closeAFD_PageName + "]]");
+  closeAFD_editPage(closeAFD_PageName, AFDpage, token, "Relisting debate");
+  document.getElementById('closeAFD_finished_main').style.display = '';
+}
+ 
+function closeAFD_init() {
+  if (!wfSupportsAjax()) {
+    jsMsg('<span style="color:red; font-size:120%">Your browser does not seem to support AJAX, which is required for the closeAFD script.</span>');
+    return;
+  }
+  form = '<div id="closeAFD_initialform">'+
+    '<h3>Closing '+closeAFD_PageName+'</h3>'+
+    '<label for="closeAFD_reason">Additional closing rationale (optional):</label><input type="text" id="closeAFD_reason" name="closeAFD_reason" />'+
+    '<label for="closeAFD_speedy">Speedy:</label><input type="checkbox" id="closeAFD_speedy" name="closeAFD_speedy" /><br /><br />'+
+    '<input type="button" id="closeAFD_delete_button" name="closeAFD_delete_button" value="Delete" onclick="closeAFD_close(\'delete\')" />'+
+    '<input type="button" id="closeAFD_keep_button" name="closeAFD_keep_button" value="Keep" onclick="closeAFD_close(\'keep\')" />'+
+    '<input type="button" id="closeAFD_noconsensus_button" name="closeAFD_noconsensus_button" value="No consensus" onclick="closeAFD_close(\'no consensus\')" />'+
+    '<input type="button" id="closeAFD_redirect_button" name="closeAFD_redirect_button" value="Redirect" onclick="closeAFD_prompt(\'redirect\')" />'+
+    '<input type="button" id="closeAFD_merge_button" name="closeAFD_merge_button" value="Merge" onclick="closeAFD_prompt(\'merge\')" />'+
+    '<input type="button" id="closeAFD_other_button" name="closeAFD_other_button" value="Other" onclick="closeAFD_other()" /><br />'+
+    '<label for="closeAFD_deleteredir">Delete redirects:</label><input type="checkbox" id="closeAFD_deleteredir" name="closeAFD_deleteredir" />'+
+    '<input type="hidden" value="0" id="closeAFD_dodelete" name="closeAFD_dodelete" /></div><div id="closeAFD_extra"></div>';
+  jsMsg(form);
+  if (!closeAFD_isAdmin) {
+    document.getElementById('closeAFD_delete_button').disabled = true;
+    document.getElementById('closeAFD_deleteredir').disabled = true;
+  }
+}
+function closeAFD_prompt(type) {
+  document.getElementById('closeAFD_extra').innerHTML += '<br /><label for="closeAFD_prompt">Target for '+type+': </label><input type="text" id="closeAFD_prompt" name="closeAFD_prompt" /><br />';
+  if (type == 'redirect') {
+    document.getElementById('closeAFD_extra').innerHTML += '<label for="closeAFD_delete_first">Delete before redirecting: </label><input type="checkbox" id="closeAFD_delete_first" name="closeAFD_delete_first" />';
+  }
+  document.getElementById('closeAFD_extra').innerHTML += '<input type="button" id="closeAFD_prompt_button" name="closeAFD_prompt_button" value="Submit" onclick="closeAFD_close(\''+type+'\')" />';
+  if (!closeAFD_isAdmin && type == 'redirect') {
+    document.getElementById('closeAFD_delete_first').disabled = true;
+  }
+}
